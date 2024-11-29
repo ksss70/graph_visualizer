@@ -1,0 +1,6 @@
+@startuml
+package "scipy" {
+    "scipy" -- "numpy"
+    "scipy" -- "matplotlib"
+}
+@enduml
