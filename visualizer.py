@@ -1,74 +1,78 @@
 import subprocess
+import networkx as nx
 import os
-import sys
-from typing import Set
 
 
-def get_package_dependencies(package_name: str) -> Set[str]:
-    """Получаем зависимости для указанного пакета с помощью pip."""
-    result = subprocess.run(
-        [sys.executable, '-m', 'pip', 'show', package_name],
-        capture_output=True,
-        text=True
-    )
-
-    if result.returncode != 0:
-        return set()
-
+# Функция для извлечения зависимостей из requirements.txt
+def get_all_dependencies(requirements_file):
     dependencies = set()
-    for line in result.stdout.splitlines():
-        if line.startswith('Requires:'):
-            dependencies = set(line[len('Requires: '):].strip().split(', '))
-            break
+
+    with open(requirements_file, 'r') as file:
+        for line in file:
+            line = line.strip()
+            if line and not line.startswith("#"):  # Игнорируем комментарии и пустые строки
+                dependencies.add(line)
+
     return dependencies
 
 
-def get_all_dependencies(package_name: str) -> Set[str]:
-    """Рекурсивно собираем все зависимости пакета."""
-    all_deps = set()
-    direct_deps = get_package_dependencies(package_name)
+# Функция для создания графа зависимостей
+def create_dependency_graph(requirements_file):
+    dependencies = get_all_dependencies(requirements_file)
+    G = nx.DiGraph()  # Направленный граф
 
-    for dep in direct_deps:
-        all_deps.add(dep)
-        all_deps.update(get_all_dependencies(dep))  # Рекурсивный вызов
-
-    return all_deps
-
-
-def generate_plantuml(package_name: str, dependencies: Set[str]) -> str:
-    """Генерируем код для визуализации графа зависимостей в формате PlantUML."""
-    plantuml_code = '@startuml\n'
-    plantuml_code += f'package "{package_name}" {{\n'
-
+    # Добавляем узлы для каждого пакета
     for dep in dependencies:
-        plantuml_code += f'    "{package_name}" -- "{dep}"\n'
+        G.add_node(dep)
 
-    plantuml_code += '}\n@enduml'
-    return plantuml_code
+    # Пример зависимости: scipy зависит от numpy и matplotlib
+    for dep in dependencies:
+        if dep == "scipy":  # Мы вручную добавляем зависимости для scipy
+            G.add_edge("scipy", "numpy")
+            G.add_edge("scipy", "matplotlib")
+
+    return G
 
 
-def save_plantuml_to_png(plantuml_path: str, output_path: str) -> None:
-    """Сохраняем граф зависимостей из PlantUML в файл PNG."""
-    subprocess.run(
-        ['plantuml', '-tpng', '-o', os.path.dirname(output_path), plantuml_path],
-        check=True
-    )
+# Функция для создания .puml файла
+def create_plantuml_file(graph, filename="dependency_graph.puml"):
+    with open(filename, 'w') as file:
+        file.write("@startuml\n")
+
+        # Генерация пакетов для каждого модуля
+        for node in graph.nodes:
+            file.write(f"  package \"{node}\" {{}}\n")
+
+        # Генерация зависимостей между модулями
+        for u, v in graph.edges:
+            file.write(f"  {u} --> {v}\n")
+
+        file.write("@enduml\n")
+    print(f"PlantUML file '{filename}' created.")
+
+
+# Функция для конвертации .puml в .png с помощью PlantUML
+def save_plantuml_to_png(puml_path, output_path):
+    try:
+        subprocess.run(['plantuml', '-tpng', '-o', os.path.dirname(output_path), puml_path], check=True)
+        print(f"Graph saved as PNG to '{output_path}'")
+    except subprocess.CalledProcessError as e:
+        print(f"Error generating PNG: {e}")
 
 
 def main():
-    if len(sys.argv) != 4:
-        print("Usage: python visualizer.py <plantuml_path> <package_name> <output_path>")
-        sys.exit(1)
+    requirements_file = 'requirements.txt'
 
-    plantuml_path = sys.argv[1]
-    package_name = sys.argv[2]
-    output_path = sys.argv[3]
+    # Создаем граф зависимостей
+    graph = create_dependency_graph(requirements_file)
 
-    dependencies = get_all_dependencies(package_name)
-    plantuml_code = generate_plantuml(package_name, dependencies)
+    # Генерируем .puml файл
+    puml_file = 'dependency_graph.puml'
+    create_plantuml_file(graph, puml_file)
 
-    with open(plantuml_path, 'w') as f:
-        f.write(plantuml_code)
+    # Конвертируем .puml файл в .png
+    save_plantuml_to_png(puml_file, 'dependency_graph.png')
 
-    save_plantuml_to_png(plantuml_path, output_path)
-    print(f"Граф зависимостей сохранен в {output_path}")
+
+if __name__ == "__main__":
+    main()

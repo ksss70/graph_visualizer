@@ -1,59 +1,59 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, mock_open
 import os
-
-from visualizer import get_all_dependencies, generate_plantuml, save_plantuml_to_png
-
+from visualizer import get_all_dependencies, create_dependency_graph, create_plantuml_file, save_plantuml_to_png
 
 class TestDependencyVisualizer(unittest.TestCase):
 
-    @patch('visualizer.get_package_dependencies')
-    def test_get_all_dependencies(self, mock_get_package_dependencies):
-        # Мокаем возвращаемые зависимости для различных пакетов
-        # Проверим зависимости для пакета 'scipy'
-        mock_get_package_dependencies.side_effect = lambda package_name: {
-            'scipy': {'numpy', 'matplotlib'},  # scipy зависит от numpy и matplotlib
-            'numpy': set(),  # У numpy нет зависимостей
-            'matplotlib': set()  # У matplotlib нет зависимостей
-        }.get(package_name, set())
+    @patch('builtins.open', mock_open(read_data="numpy\nscipy\nmatplotlib"))
+    def test_get_all_dependencies(self):
+        # Тестируем функцию извлечения зависимостей
+        dependencies = get_all_dependencies("requirements.txt")
+        self.assertEqual(dependencies, {"numpy", "scipy", "matplotlib"})
 
-        # Получаем все зависимости для 'scipy'
-        result = get_all_dependencies('scipy')
+    @patch('builtins.open', mock_open(read_data="numpy\nscipy\nmatplotlib"))
+    def test_create_dependency_graph(self):
+        # Тестируем создание графа
+        graph = create_dependency_graph("requirements.txt")
+        self.assertEqual(len(graph.nodes), 3)  # 3 узла: numpy, scipy, matplotlib
+        self.assertTrue(graph.has_edge("scipy", "numpy"))  # Проверяем зависимость scipy -> numpy
+        self.assertTrue(graph.has_edge("scipy", "matplotlib"))  # Проверяем зависимость scipy -> matplotlib
 
-        # Проверяем, что зависимости для 'scipy' содержат 'numpy' и 'matplotlib', но не важно в каком порядке
-        self.assertTrue({'numpy', 'matplotlib'}.issubset(result))  # Проверяем, что результат содержит эти зависимости
+    def test_create_plantuml_file(self):
+        # Тестируем создание .puml файла без мокирования open
+        graph = create_dependency_graph("requirements.txt")
+        puml_path = 'test_graph.puml'
+        create_plantuml_file(graph, puml_path)
 
-    @patch('visualizer.subprocess.run')
-    @patch('visualizer.generate_plantuml')
-    def test_save_plantuml_to_png(self, mock_generate_plantuml, mock_subprocess_run):
-        mock_generate_plantuml.return_value = "@startuml\n    'dummy graph'\n@enduml"
+        # Открываем файл и проверяем его содержимое
+        with open(puml_path, 'r') as file:
+            puml_content = file.read()
 
-        # Путь к файлам
-        plantuml_path = 'dependency_graph.puml'
-        output_path = 'output.png'
+        print("---- PUMl FILE CONTENT ----")
+        print(puml_content)
+        print("--------------------------")
 
-        # Вызов функции
-        save_plantuml_to_png(plantuml_path, output_path)
+        # Проверяем, что в содержимом puml-файла есть правильные данные
+        self.assertIn('@startuml', puml_content)
+        self.assertIn('scipy --> numpy', puml_content)
+        self.assertIn('scipy --> matplotlib', puml_content)
+        self.assertIn('package "numpy" {}', puml_content)
+        self.assertIn('package "scipy" {}', puml_content)
+        self.assertIn('package "matplotlib" {}', puml_content)
 
-        # Проверяем, что subprocess.run был вызван правильно
-        mock_subprocess_run.assert_called_with(
-            ['plantuml', '-tpng', '-o', os.path.dirname(output_path), plantuml_path],
-            check=True
-        )
+        # Удаляем файл после проверки
+        os.remove(puml_path)
 
-    @patch('visualizer.save_plantuml_to_png')
-    @patch('visualizer.generate_plantuml')
-    def test_main_function(self, mock_generate_plantuml, mock_save_plantuml_to_png):
-        mock_generate_plantuml.return_value = "@startuml\n    'dummy graph'\n@enduml"
+    @patch('subprocess.run')  # Мокаем вызов subprocess.run
+    def test_save_plantuml_to_png(self, mock_run):
+        # Тестируем сохранение в PNG
+        mock_run.return_value = None  # Подтверждаем, что subprocess.run не вызывает ошибок
+        puml_file = 'test_graph.puml'
+        output_path = 'test_graph.png'
+        save_plantuml_to_png(puml_file, output_path)
 
-        # Симулируем аргументы командной строки
-        with patch('sys.argv', ['visualizer.py', 'dependency_graph.puml', 'scipy', 'output.png']):
-            # Вызов main
-            from visualizer import main
-            main()
-
-        # Проверяем, что save_plantuml_to_png был вызван с правильными параметрами
-        mock_save_plantuml_to_png.assert_called_with('dependency_graph.puml', 'output.png')
+        # Проверяем, что subprocess.run был вызван с нужными аргументами
+        mock_run.assert_called_with(['plantuml', '-tpng', '-o', os.path.dirname(output_path), puml_file], check=True)
 
 
 if __name__ == '__main__':

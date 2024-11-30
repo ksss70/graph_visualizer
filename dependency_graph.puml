@@ -1,6 +1,7 @@
 @startuml
-package "scipy" {
-    "scipy" -- "numpy"
-    "scipy" -- "matplotlib"
-}
+  package "numpy" {}
+  package "matplotlib" {}
+  package "scipy" {}
+  scipy --> numpy
+  scipy --> matplotlib
 @enduml
