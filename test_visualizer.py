@@ -1,60 +1,82 @@
 import unittest
-from unittest.mock import patch, mock_open
-import os
-from visualizer import get_all_dependencies, create_dependency_graph, create_plantuml_file, save_plantuml_to_png
-
-class TestDependencyVisualizer(unittest.TestCase):
-
-    @patch('builtins.open', mock_open(read_data="numpy\nscipy\nmatplotlib"))
-    def test_get_all_dependencies(self):
-        # Тестируем функцию извлечения зависимостей
-        dependencies = get_all_dependencies("requirements.txt")
-        self.assertEqual(dependencies, {"numpy", "scipy", "matplotlib"})
-
-    @patch('builtins.open', mock_open(read_data="numpy\nscipy\nmatplotlib"))
-    def test_create_dependency_graph(self):
-        # Тестируем создание графа
-        graph = create_dependency_graph("requirements.txt")
-        self.assertEqual(len(graph.nodes), 3)  # 3 узла: numpy, scipy, matplotlib
-        self.assertTrue(graph.has_edge("scipy", "numpy"))  # Проверяем зависимость scipy -> numpy
-        self.assertTrue(graph.has_edge("scipy", "matplotlib"))  # Проверяем зависимость scipy -> matplotlib
-
-    def test_create_plantuml_file(self):
-        # Тестируем создание .puml файла без мокирования open
-        graph = create_dependency_graph("requirements.txt")
-        puml_path = 'test_graph.puml'
-        create_plantuml_file(graph, puml_path)
-
-        # Открываем файл и проверяем его содержимое
-        with open(puml_path, 'r') as file:
-            puml_content = file.read()
-
-        print("---- PUMl FILE CONTENT ----")
-        print(puml_content)
-        print("--------------------------")
-
-        # Проверяем, что в содержимом puml-файла есть правильные данные
-        self.assertIn('@startuml', puml_content)
-        self.assertIn('scipy --> numpy', puml_content)
-        self.assertIn('scipy --> matplotlib', puml_content)
-        self.assertIn('package "numpy" {}', puml_content)
-        self.assertIn('package "scipy" {}', puml_content)
-        self.assertIn('package "matplotlib" {}', puml_content)
-
-        # Удаляем файл после проверки
-        os.remove(puml_path)
-
-    @patch('subprocess.run')  # Мокаем вызов subprocess.run
-    def test_save_plantuml_to_png(self, mock_run):
-        # Тестируем сохранение в PNG
-        mock_run.return_value = None  # Подтверждаем, что subprocess.run не вызывает ошибок
-        puml_file = 'test_graph.puml'
-        output_path = 'test_graph.png'
-        save_plantuml_to_png(puml_file, output_path)
-
-        # Проверяем, что subprocess.run был вызван с нужными аргументами
-        mock_run.assert_called_with(['plantuml', '-tpng', '-o', os.path.dirname(output_path), puml_file], check=True)
+from unittest.mock import patch, Mock
+from io import StringIO
+import subprocess
+import sys
+from visualizer import get_dependencies, get_dependencies_git, convertDicts, render_plantuml, generate_png_from_plantuml
 
 
+# Тесты для функций получения зависимостей
+class TestDependenciesFunctions(unittest.TestCase):
+
+    @patch('visualizer.requests.get')
+    def test_get_dependencies(self, mock_get):
+        # Мокаем ответ от API
+        mock_response = {
+            "info": {
+                "requires_dist": ["numpy", "scipy"]
+            }
+        }
+        mock_get.return_value.json.return_value = mock_response
+
+        result = get_dependencies("matplotlib")
+        self.assertEqual(result, ["numpy", "scipy"])
+
+    @patch('visualizer.requests.get')
+    def test_get_dependencies_empty(self, mock_get):
+        # Мокаем ответ от API, где зависимостей нет
+        mock_response = {
+            "info": {}
+        }
+        mock_get.return_value.json.return_value = mock_response
+
+        result = get_dependencies("nonexistent_package")
+        self.assertEqual(result, "")
+
+    @patch('visualizer.requests.get')
+    def test_get_dependencies_git(self, mock_get):
+        # Мокаем ответ от GitHub (например, с зависимостями)
+        mock_response = Mock()
+        mock_response.text = 'numpy\nscipy\n'  # Имитация текста с зависимостями
+        mock_get.return_value = mock_response
+
+        result = get_dependencies_git("https://github.com/some/package")
+        self.assertEqual(result, {'numpy', 'scipy'})
+
+
+# Тесты для функций, генерирующих код PlantUML
+class TestPlantUMLFunctions(unittest.TestCase):
+
+    def test_convert_dicts(self):
+        dependencies = ["numpy", "scipy"]
+        result = convertDicts("matplotlib", dependencies, 1)  # Задаем глубину 1, чтобы избежать рекурсии
+        expected_result = "\"matplotlib\" --> \"numpy\"\n\"matplotlib\" --> \"scipy\"\n"
+        self.assertEqual(result, expected_result)
+
+    def test_render_plantuml(self):
+        # Проверим, что файл создается
+        with patch("builtins.open", unittest.mock.mock_open()) as mock_file:
+            render_plantuml("test_code", "test_output.txt")
+            mock_file.assert_called_once_with("test_output.txt", "w")
+            mock_file().write.assert_any_call("@startuml\n")
+            mock_file().write.assert_any_call("test_code")
+            mock_file().write.assert_any_call("@enduml\n")
+
+
+# Тесты для генерации PNG
+class TestPNGGeneration(unittest.TestCase):
+
+    @patch("subprocess.run")
+    def test_generate_png_from_plantuml(self, mock_run):
+        # Мокаем успешный запуск команды
+        mock_run.return_value = None  # Симулируем успешное выполнение команды
+        generate_png_from_plantuml("test_output.txt")
+        mock_run.assert_called_once_with(["plantuml", "test_output.txt"], check=True)
+
+
+
+
+
+# Запуск тестов
 if __name__ == '__main__':
     unittest.main()
