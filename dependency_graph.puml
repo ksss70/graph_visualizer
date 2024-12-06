@@ -1,7 +1,0 @@
-@startuml
-  package "numpy" {}
-  package "matplotlib" {}
-  package "scipy" {}
-  scipy --> numpy
-  scipy --> matplotlib
-@enduml
